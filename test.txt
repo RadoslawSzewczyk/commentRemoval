@@ -1,0 +1,7 @@
+-- This is a single-line comment in Lua.
+print("Hello, Lua!")
+--[[ 
+   This is a multi-line comment in Lua.
+   It spans multiple lines and should be removed.
+]]
+print("Goodbye, Lua!")
