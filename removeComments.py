@@ -52,7 +52,33 @@ def processSemicolonLine(line):
     return line.split(';')[0].rstrip() + '\n'
 
 def processPercentLine(line):
-    return line.split('%')[0].rstrip() + '\n'
+    if not hasattr(processPercentLine, "inBlock"):
+        processPercentLine.inBlock = False
+
+    if processPercentLine.inBlock:
+        end = line.find("%}")
+        if end == -1:
+            return ""
+        processPercentLine.inBlock = False
+        return processPercentLine(line[end + 2:])
+
+    start = line.find("%{")
+    if start != -1:
+        end = line.find("%}", start + 2)
+        if end == -1:
+            processPercentLine.inBlock = True
+            return line[:start].rstrip() + ("\n" if line[:start].strip() else "")
+        else:
+            cleaned = line[:start] + line[end + 2:]
+            return processPercentLine(cleaned)
+
+    idx = line.find("%")
+    if idx != -1:
+        code = line[:idx].rstrip()
+        return code + ("\n" if code else "")
+    return line
+
+
 
 def processDashLine(line, comment_marker="--"):
     return line.split(comment_marker)[0].rstrip() + '\n'
@@ -62,23 +88,19 @@ def processHaskellLine(line, inBlock):
         endIdx = line.find('-}')
         if endIdx == -1:
             return '', True
-        else:
-            inBlock = False
-            return line[endIdx+2:], inBlock
-    else:
-        lineCommentIdx = line.find('--')
-        blockStartIdx = line.find('{-')
-        if blockStartIdx != -1 and (lineCommentIdx == -1 or blockStartIdx < lineCommentIdx):
-            endIdx = line.find('-}', blockStartIdx+2)
-            if endIdx == -1:
-                return line[:blockStartIdx], True
-            else:
-                newLine = line[:blockStartIdx] + line[endIdx+2:]
-                return processHaskellLine(newLine, False)
-        elif lineCommentIdx != -1:
-            return line[:lineCommentIdx], False
-        else:
-            return line, False
+        inBlock = False
+        line = line[endIdx+2:]
+    blockStartIdx = line.find('{-')
+    lineCommentIdx = line.find('--')
+    if blockStartIdx != -1 and (lineCommentIdx == -1 or blockStartIdx < lineCommentIdx):
+        endIdx = line.find('-}', blockStartIdx+2)
+        if endIdx == -1:
+            return line[:blockStartIdx] + '\n', True
+        newLine = line[:blockStartIdx] + line[endIdx+2:]
+        return processHaskellLine(newLine, False)
+    if lineCommentIdx != -1:
+        return line[:lineCommentIdx].rstrip() + '\n', False
+    return line.rstrip() + '\n', False
 
 def processLuaLine(line, inBlock):
     if inBlock:
@@ -92,21 +114,16 @@ def processLuaLine(line, inBlock):
     else:
         startIdx = line.find("--[[")
         if startIdx != -1:
-            # Keep any code before the block comment.
             codeBefore = line[:startIdx]
-            # Look for the closing marker on the same line.
             remainder = line[startIdx+4:]
             endIdx = remainder.find("]]")
             if endIdx != -1:
                 inBlock = False
-                # Remove comment block on this line and process any remaining text.
                 new_line = codeBefore + remainder[endIdx+2:]
                 return processLuaLine(new_line, inBlock)
             else:
-                # Block comment starts and continues on following lines.
                 return codeBefore, True
         else:
-            # Process single-line Lua comments (starting with --)
             singleIdx = line.find("--")
             if singleIdx != -1:
                 return line[:singleIdx], False
@@ -119,34 +136,32 @@ def processDelphiLine(line, state):
         endIdx = line.find(end_marker)
         if endIdx == -1:
             return '', state
-        else:
-            state["inBlock"] = False
-            state["block_end"] = None
-            return line[endIdx+len(end_marker):], state
+        state["inBlock"] = False
+        state["block_end"] = None
+        return line[endIdx+len(end_marker):], state
+
     lineCommentIdx = line.find('//')
-    block1Idx = line.find('{')
-    block2Idx = line.find('(*')
-    blockStartIdx = -1
-    block_marker = None
-    if block1Idx != -1:
-        blockStartIdx = block1Idx
-        block_marker = "}"
-    if block2Idx != -1 and (blockStartIdx == -1 or block2Idx < blockStartIdx):
-        blockStartIdx = block2Idx
-        block_marker = "*)"
-    if blockStartIdx != -1 and (lineCommentIdx == -1 or blockStartIdx < lineCommentIdx):
-        endIdx = line.find(block_marker, blockStartIdx + (1 if block_marker == "}" else 2))
+    opts = []
+    for marker, endm in [('{','}'), ('(*','*)'), ('/*','*/')]:
+        idx = line.find(marker)
+        if idx != -1:
+            opts.append((idx, marker, endm))
+    if opts:
+        opts.sort(key=lambda x: x[0])
+        startIdx, marker, endm = opts[0]
+        if lineCommentIdx != -1 and lineCommentIdx < startIdx:
+            return line[:lineCommentIdx], state
+        endIdx = line.find(endm, startIdx + len(marker))
         if endIdx == -1:
-            state["inBlock"] = True
-            state["block_end"] = block_marker
-            return line[:blockStartIdx], state
-        else:
-            newLine = line[:blockStartIdx] + line[endIdx+len(block_marker):]
-            return processDelphiLine(newLine, state)
-    elif lineCommentIdx != -1:
+            state['inBlock'] = True
+            state['block_end'] = endm
+            return line[:startIdx], state
+        newLine = line[:startIdx] + line[endIdx+len(endm):]
+        return processDelphiLine(newLine, state)
+
+    if lineCommentIdx != -1:
         return line[:lineCommentIdx], state
-    else:
-        return line, state
+    return line, state
 
 def processCobolLine(line):
     if len(line) >= 7 and line[6] == '*':
@@ -211,11 +226,6 @@ def removeCommentsGenerator(lines, language):
         inTriple = False
         for line in lines:
             line, inTriple = processPythonLine(line, inTriple)
-            if line.strip():
-                yield line
-    elif language == "r":
-        for line in lines:
-            line = processHashLine(line)
             if line.strip():
                 yield line
     elif language == "hash-style":
@@ -287,7 +297,6 @@ def main():
         "c-style",
         "html",
         "python",
-        "r",
         "hash-style",
         "semicolon-style",
         "percent-style",
