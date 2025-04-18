@@ -1,5 +1,6 @@
 import os
 import sys
+import argparse
 
 def processCstyleLine(line, inBlock):
     if inBlock:
@@ -292,6 +293,8 @@ def removeCommentsGenerator(lines, language):
             if line.strip():
                 yield line
 
+import argparse
+
 def main():
     supportedLanguages = [
         "c-style",
@@ -309,26 +312,44 @@ def main():
         "vbnet",
         "abap"
     ]
-    file_path = input("Enter the path to the code file: ").strip()
+
+    parser = argparse.ArgumentParser(description="Remove comments from source code.")
+    parser.add_argument('-i', '--input', help='Path to input code file')
+    parser.add_argument('-c', '--code', help=f"Code language type. Supported: {', '.join(supportedLanguages)}")
+
+    args = parser.parse_args()
+
+    file_path = args.input
+    language = args.code
+
+    if not file_path:
+        file_path = input("Enter the path to the code file: ").strip()
+
     if not os.path.isfile(file_path):
         print("Error: The file does not exist.")
         sys.exit(1)
-    print("Select a programming language for comment removal:")
-    for idx, lang in enumerate(supportedLanguages, 1):
-        print(f"{idx}. {lang}")
-    language = None
-    while not language:
-        try:
-            choice = int(input("Choose language (number): "))
-            if 1 <= choice <= len(supportedLanguages):
-                language = supportedLanguages[choice - 1]
-            else:
-                print(f"Please enter a number between 1 and {len(supportedLanguages)}.")
-        except ValueError:
-            print("Invalid input. Please enter a valid number.")
+
+    if not language:
+        print("Select a programming language for comment removal:")
+        for idx, lang in enumerate(supportedLanguages, 1):
+            print(f"{idx}. {lang}")
+        while not language:
+            try:
+                choice = int(input("Choose language (number): "))
+                if 1 <= choice <= len(supportedLanguages):
+                    language = supportedLanguages[choice - 1]
+                else:
+                    print(f"Please enter a number between 1 and {len(supportedLanguages)}.")
+            except ValueError:
+                print("Invalid input. Please enter a valid number.")
+    elif language not in supportedLanguages:
+        print(f"Error: '{language}' is not a supported language.")
+        sys.exit(1)
+
     print(f"You selected: {language}")
     base, ext = os.path.splitext(file_path)
     newFilePath = f"{base}_nocomments{ext}"
+
     try:
         with open(file_path, 'r', encoding='utf-8') as infile, open(newFilePath, 'w', encoding='utf-8') as outfile:
             cleaned_lines = removeCommentsGenerator(infile, language)
@@ -338,6 +359,7 @@ def main():
     except Exception as e:
         print(f"Error processing file: {e}")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
