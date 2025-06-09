@@ -209,9 +209,54 @@ def processPythonLine(line, inTriple):
             return line.split('#')[0].rstrip() + '\n', False
         else:
             return line, False
+        
+def processCstyleLine(line, inBlock):
+    if inBlock:
+        endIdx = line.find('*/')
+        if endIdx == -1:
+            return '', True
+        inBlock = False
+        return line[endIdx+2:], inBlock
+    lineCommentIdx = line.find('//')
+    blockStartIdx = line.find('/*')
+    if blockStartIdx != -1 and (lineCommentIdx == -1 or blockStartIdx < lineCommentIdx):
+        endIdx = line.find('*/', blockStartIdx+2)
+        if endIdx == -1:
+            return line[:blockStartIdx], True
+        newLine = line[:blockStartIdx] + line[endIdx+2:]
+        return processCstyleLine(newLine, False)
+    if lineCommentIdx != -1:
+        return line[:lineCommentIdx], False
+    return line, False
+
+def processFortranLine(line):
+    return line.split('!')[0] + ('\n' if not line.endswith('\n') else '')
+
+def processPercentLine(line):
+    if not hasattr(processPercentLine, "inBlock"):
+        processPercentLine.inBlock = False
+    if processPercentLine.inBlock:
+        end = line.find("%}")
+        if end == -1:
+            return ""
+        processPercentLine.inBlock = False
+        return processPercentLine(line[end + 2:])
+    start = line.find("%{")
+    if start != -1:
+        end = line.find("%}", start + 2)
+        if end == -1:
+            processPercentLine.inBlock = True
+            return line[:start].rstrip() + ("\n" if line[:start].strip() else "")
+        cleaned = line[:start] + line[end + 2:]
+        return processPercentLine(cleaned)
+    idx = line.find("%")
+    if idx != -1:
+        code = line[:idx].rstrip()
+        return code + ("\n" if code else "")
+    return line
 
 def removeCommentsGenerator(lines, language):
-    if language == "c-style":
+    if language in ["c-style", "css", "cuda", "java", "rust", "csharp"]:
         inBlock = False
         for line in lines:
             line, inBlock = processCstyleLine(line, inBlock)
@@ -239,7 +284,7 @@ def removeCommentsGenerator(lines, language):
             line = processSemicolonLine(line)
             if line.strip():
                 yield line
-    elif language == "percent-style":
+    elif language in ["percent-style", "matlab"]:
         for line in lines:
             line = processPercentLine(line)
             if line.strip():
@@ -288,29 +333,22 @@ def removeCommentsGenerator(lines, language):
             line = processABAPLine(line)
             if line.strip():
                 yield line
+    elif language == "fortran":
+        for line in lines:
+            line = processFortranLine(line)
+            if line.strip():
+                yield line
     else:
         for line in lines:
             if line.strip():
                 yield line
 
-import argparse
-
 def main():
     supportedLanguages = [
-        "c-style",
-        "html",
-        "python",
-        "hash-style",
-        "semicolon-style",
-        "percent-style",
-        "ada",
-        "haskell",
-        "lua",
-        "delphi",
-        "cobol",
-        "sas",
-        "vbnet",
-        "abap"
+        "c-style", "html", "python", "hash-style",
+        "semicolon-style", "percent-style", "ada", "haskell",
+        "lua", "delphi", "cobol", "sas", "vbnet", "abap",
+        "css", "cuda", "java", "rust", "csharp", "fortran", "matlab"
     ]
 
     parser = argparse.ArgumentParser(description="Remove comments from source code.")
@@ -359,7 +397,6 @@ def main():
     except Exception as e:
         print(f"Error processing file: {e}")
         sys.exit(1)
-
 
 if __name__ == "__main__":
     main()
